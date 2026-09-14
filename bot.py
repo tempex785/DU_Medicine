@@ -4006,22 +4006,21 @@ def main():
     init_db()
 
     LOCAL_API_URL = os.getenv("LOCAL_API_URL", "")
-        builder = (
-                ApplicationBuilder()
-                        .token(TOKEN)
-                                .read_timeout(300)
-                                        .write_timeout(300)
-                                                .connect_timeout(30)
-                                                    )
-                                                        if LOCAL_API_URL:
-                                                                builder = (
-                                                                            builder
-                                                                                        .base_url(LOCAL_API_URL)
-                                                                                                    .base_file_url(LOCAL_API_URL.replace("/bot", "/file/bot"))
-                                                                                                                .local_mode(True)
-                                                                                                                        )
-                                                                                                                            app = builder.build()
+    builder = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .read_timeout(300)
+        .write_timeout(300)
+        .connect_timeout(30)
     )
+    if LOCAL_API_URL:
+        builder = (
+            builder
+            .base_url(LOCAL_API_URL)
+            .base_file_url(LOCAL_API_URL.replace("/bot", "/file/bot"))
+            .local_mode(True)
+        )
+    app = builder.build()
     app.add_handler(CommandHandler("start",  start))
     app.add_handler(CommandHandler("admin",  admin_cmd))
     app.add_handler(CommandHandler("search", search_cmd))

@@ -4005,17 +4005,22 @@ def main():
     logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
     init_db()
 
-    LOCAL_API_URL = os.getenv("LOCAL_API_URL", "http://127.0.0.1:8081/bot")
-    app = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .base_url(LOCAL_API_URL)
-        .base_file_url(LOCAL_API_URL.replace("/bot", "/file/bot"))
-        .local_mode(True)
-        .read_timeout(300)
-        .write_timeout(300)
-        .connect_timeout(30)
-        .build()
+    LOCAL_API_URL = os.getenv("LOCAL_API_URL", "")
+        builder = (
+                ApplicationBuilder()
+                        .token(TOKEN)
+                                .read_timeout(300)
+                                        .write_timeout(300)
+                                                .connect_timeout(30)
+                                                    )
+                                                        if LOCAL_API_URL:
+                                                                builder = (
+                                                                            builder
+                                                                                        .base_url(LOCAL_API_URL)
+                                                                                                    .base_file_url(LOCAL_API_URL.replace("/bot", "/file/bot"))
+                                                                                                                .local_mode(True)
+                                                                                                                        )
+                                                                                                                            app = builder.build()
     )
     app.add_handler(CommandHandler("start",  start))
     app.add_handler(CommandHandler("admin",  admin_cmd))

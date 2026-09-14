@@ -6,7 +6,7 @@
 ╚═══════════════════════════════════════════════════╝
 """
 
-import os, logging, sqlite3, shutil, asyncio, io
+import os, logging, sqlite3, asyncio, io
 from datetime import datetime, time as dtime
 from collections import defaultdict
 from dotenv import load_dotenv
@@ -32,7 +32,7 @@ if not _admin_env:
     raise RuntimeError("❌ ADMIN_IDS مش موجود — حط الـ ID في ملف .env")
 ADMIN_IDS = set(map(int, _admin_env.split(",")))
 DB_FILE   = os.getenv("DB_FILE", "eshra7tab.db")
-BACKUP_DIR = os.path.dirname(DB_FILE) or "."
+# BACKUP_DIR removed — backups disabled to avoid writing to persistent volume
 PAGE_SIZE = 5
 
 # ─────────────────────────────────────────────────────
@@ -902,7 +902,7 @@ def admin_kb():
          ["✏️ Edit Module",      "🗑 Delete Module"],
          ["✏️ Edit Subject",     "🗑 Delete Subject"],
          ["📢 Broadcast",       "📨 رسالة ليوزر"],
-         ["📊 Stats",           "💾 Backup"],
+         ["📊 Stats"],
          ["📥 Import Excel",    "📤 Export Excel"],
          ["📦 Import ZIP",      "🔎 بحث يوزر"],
          ["🏦 إدارة البنوك",    "🔤 ترتيب أبجدي"],
@@ -2506,20 +2506,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        if text == "💾 Backup":
-            await update.message.reply_text("⏳ جاري عمل النسخة الاحتياطية…")
-            try:
-                stamp = datetime.now().strftime("%Y%m%d_%H%M")
-                dst   = os.path.join(BACKUP_DIR, f"backup_{stamp}.db")
-                shutil.copy2(DB_FILE, dst)
-                await update.message.reply_text(
-                    f"✅ تم الـ Backup: `{dst}`",
-                    parse_mode="Markdown", reply_markup=admin_kb()
-                )
-            except Exception as e:
-                await update.message.reply_text(f"❌ فشل الـ Backup: {e}", reply_markup=admin_kb())
-            return
-
         if text == "📨 رسالة ليوزر":
             context.user_data.clear()
             context.user_data["step"] = "dm_uid"
@@ -3937,16 +3923,7 @@ async def sheet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────────────
 # 💾  BACKGROUND JOBS
 # ─────────────────────────────────────────────────────
-async def daily_backup(context: ContextTypes.DEFAULT_TYPE):
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    dst   = os.path.join(BACKUP_DIR, f"backup_{stamp}.db")
-    shutil.copy2(DB_FILE, dst)
-    logging.info(f"✅ Backup: {dst}")
-    for aid in ADMIN_IDS:
-        try:
-            await context.bot.send_message(aid, f"💾 Backup saved: `{dst}`",
-                                           parse_mode="Markdown")
-        except: pass
+# daily_backup() removed — backups disabled to avoid writing to persistent volume
 
 async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
     """إحصائيات يومية تتبعت للأدمن كل يوم الصبح."""
@@ -4033,7 +4010,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     jq = app.job_queue
-    jq.run_daily(daily_backup,  time=dtime(hour=3,  minute=0))
+    # jq.run_daily(daily_backup, time=dtime(hour=3, minute=0))  # backups disabled
     jq.run_daily(daily_stats,   time=dtime(hour=8,  minute=0))
     jq.run_repeating(check_broadcasts, interval=60, first=10)
 

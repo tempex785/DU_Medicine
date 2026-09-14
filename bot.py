@@ -2694,6 +2694,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     uid = update.effective_user.id
 
+    if await handle_restoredb_upload(update, context):
+        return
+
     def extract_file():
         if msg.photo:    return msg.photo[-1].file_id, "photo"
         if msg.video:    return msg.video.file_id, "video"
@@ -3914,6 +3917,91 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ حصل خطأ: {e}")
 
+async def restoredb_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin only: /restoredb — بيستنى ملف .db ويستبدل بيه القاعدة الشغالة."""
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        await update.message.reply_text("⛔️ Admin only.")
+        return
+    context.user_data["step"] = "restoredb_wait"
+    await update.message.reply_text(
+        "📥 ابعت ملف الـ *.db* دلوقتي (كـ Document).\n"
+        "⚠️ هيتم استبدال قاعدة البيانات الحالية بالكامل — هيتاخد باكاب للنسخة القديمة قبل الاستبدال.\n"
+        "اكتب /cancel لو عايز تلغي.",
+        parse_mode="Markdown"
+    )
+
+async def handle_restoredb_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """لو الأدمن في وضع استرجاع القاعدة، بيتعامل مع الملف المرفوع ويرجع True لو اتعالج."""
+    uid = update.effective_user.id
+    msg = update.message
+    if context.user_data.get("step") != "restoredb_wait":
+        return False
+    if not is_admin(uid):
+        context.user_data.clear()
+        return False
+    if not msg.document:
+        await msg.reply_text("⚠️ لازم تبعت ملف .db كـ Document.")
+        return True
+
+    fname = msg.document.file_name or ""
+    if not fname.lower().endswith(".db"):
+        await msg.reply_text("⚠️ الملف لازم يكون امتداده .db")
+        return True
+
+    await msg.reply_text("⏳ بيتحمل ويتفحص الملف…")
+    tmp_path = os.path.join(BACKUP_DIR, f"_restore_tmp_{uid}.db")
+    try:
+        tg_file = await context.bot.get_file(msg.document.file_id)
+        await tg_file.download_to_drive(tmp_path)
+
+        # تحقق إن الملف ده قاعدة SQLite سليمة قبل ما نستبدل بيه
+        test_conn = sqlite3.connect(tmp_path)
+        try:
+            integrity = test_conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity != "ok":
+                raise ValueError(f"integrity_check فشل: {integrity}")
+            tables = {r[0] for r in test_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "lectures" not in tables or "users" not in tables:
+                raise ValueError("الملف مش قاعدة بيانات البوت (جداول ناقصة).")
+        finally:
+            test_conn.close()
+
+        # باكاب للنسخة الحالية قبل الاستبدال
+        if os.path.exists(DB_FILE):
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pre_backup = os.path.join(BACKUP_DIR, f"pre_restore_{stamp}.db")
+            shutil.copy2(DB_FILE, pre_backup)
+
+        # قفل أي اتصالات مفتوحة على القاعدة الحالية
+        conn = getattr(_db_local, "conn", None)
+        if conn:
+            conn.close()
+            _db_local.conn = None
+
+        # استبدال القاعدة، وشيل ملفات WAL/SHM القديمة عشان مايحصلش تعارض
+        for ext in ("", "-wal", "-shm"):
+            stale = DB_FILE + ext
+            if ext and os.path.exists(stale):
+                os.remove(stale)
+        shutil.move(tmp_path, DB_FILE)
+
+        context.user_data.clear()
+        await msg.reply_text(
+            "✅ *تم استبدال القاعدة بنجاح!*\n🔄 البوت هيعمل نفسه Restart دلوقتي عشان التغيير يسري على كل حاجة.",
+            parse_mode="Markdown"
+        )
+        logging.info(f"🔄 DB restored by admin {uid} from uploaded file, restarting process")
+        asyncio.get_event_loop().call_later(2, lambda: os._exit(1))
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        context.user_data.clear()
+        await msg.reply_text(f"❌ فشل الاسترجاع: {e}")
+    return True
+
 async def sheet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """يبعت للطالب PDF بإحصائياته الشخصية."""
     uid  = update.effective_user.id
@@ -4026,6 +4114,7 @@ def main():
     app.add_handler(CommandHandler("search", search_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("sheet",  sheet_cmd))
+    app.add_handler(CommandHandler("restoredb", restoredb_cmd))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(
         filters.Document.ALL | filters.PHOTO | filters.VIDEO, handle_file
